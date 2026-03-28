@@ -98,19 +98,20 @@ fn collapse_chain(tree: &DirTree, start: usize) -> (usize, String) {
 /// * `depth_limit` — optional maximum *visual* depth to recurse into.
 pub fn unified_layout(
     tree: &DirTree,
+    start_node: usize,
     max_rects: usize,
     depth_limit: Option<u32>,
 ) -> Vec<TreemapRect> {
     let mut rects = Vec::with_capacity(max_rects.min(tree.nodes.len() * 2));
-    if tree.nodes.is_empty() {
+    if tree.nodes.is_empty() || start_node >= tree.nodes.len() {
         return rects;
     }
-    if tree.nodes[0].cumulative_size == 0 {
+    if tree.nodes[start_node].cumulative_size == 0 {
         return rects;
     }
 
     // Collapse the root chain (e.g. C:\ → Program Files → Steam → ...).
-    let (effective_root, root_name) = collapse_chain(tree, 0);
+    let (effective_root, root_name) = collapse_chain(tree, start_node);
     layout_dir(
         tree,
         effective_root,
@@ -465,7 +466,7 @@ mod tests {
         tree.compute_cumulative_sizes();
         assert_eq!(tree.nodes[root].cumulative_size, 850);
 
-        let rects = unified_layout(&tree, 1000, None);
+        let rects = unified_layout(&tree, 0, 1000, None);
         assert!(!rects.is_empty());
 
         // Root rect is the unit square.
@@ -506,7 +507,7 @@ mod tests {
 
         // depth_limit=1 → root (visual depth 0) recurses to show children,
         // but subdir "a" (visual depth 1) is at the limit and does not recurse.
-        let rects = unified_layout(&tree, 100, Some(1));
+        let rects = unified_layout(&tree, 0, 100, Some(1));
         // "r.txt" should appear (child of root at depth 0), but "f.txt"
         // inside "a" (depth 1) should NOT appear.
         let a_files: Vec<_> = rects
@@ -532,7 +533,7 @@ mod tests {
         tree.nodes[root].size = 200;
         tree.compute_cumulative_sizes();
 
-        let rects = unified_layout(&tree, 5, None);
+        let rects = unified_layout(&tree, 0, 5, None);
         assert!(rects.len() <= 5);
     }
 
@@ -567,7 +568,7 @@ mod tests {
         tree.nodes[root].size = 600;
         tree.compute_cumulative_sizes();
 
-        let rects = unified_layout(&tree, 1000, None);
+        let rects = unified_layout(&tree, 0, 1000, None);
         let other = rects.iter().find(|r| r.is_other);
         assert!(other.is_some(), "expected an 'other files' rect");
         assert_eq!(other.unwrap().size, 200);

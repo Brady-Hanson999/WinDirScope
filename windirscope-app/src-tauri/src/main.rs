@@ -301,15 +301,36 @@ fn cancel_scan(state: State<'_, AppState>) -> Result<(), String> {
 fn get_unified_treemap(
     max_rects: u32,
     depth_limit: Option<u32>,
+    root_path: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<Vec<treemap::TreemapRect>, String> {
     let guard = state.last_tree.lock().unwrap();
     match guard.as_ref() {
-        Some(tree) => Ok(treemap::unified_layout(
-            tree,
-            max_rects.max(1) as usize,
-            depth_limit,
-        )),
+        Some(tree) => {
+            let mut start_node = 0;
+            if let Some(ref p) = root_path {
+                // Find node by path
+                let mut found = false;
+                for i in 0..tree.nodes.len() {
+                    // Only dirs can be roots for our layout conceptually
+                    if tree.nodes[i].kind == windirscope_core::NodeKind::Directory 
+                       && tree.full_path(i).display().to_string() == *p {
+                        start_node = i;
+                        found = true;
+                        break;
+                    }
+                }
+                if !found {
+                    return Err(format!("Could not find directory {} in tree", p));
+                }
+            }
+            Ok(treemap::unified_layout(
+                tree,
+                start_node,
+                max_rects.max(1) as usize,
+                depth_limit,
+            ))
+        }
         None => Err("No scan result available. Run a scan first.".into()),
     }
 }

@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { invoke } from "@tauri-apps/api/tauri";
 
 // ── Colour palette (same as original) ─────────────────────────────
@@ -46,6 +47,7 @@ export default function Treemap({ formatBytes }) {
   const [generating, setGenerating] = useState(false);
   const [status, setStatus] = useState("");
   const [breadcrumb, setBreadcrumb] = useState("");
+  const [focusedPath, setFocusedPath] = useState(null);
 
   // Context menu state
   const [ctxMenu, setCtxMenu] = useState({ visible: false, x: 0, y: 0, rect: null });
@@ -145,9 +147,8 @@ export default function Treemap({ formatBytes }) {
 
   // ── Mouse handlers ──────────────────────────────────────────────
   const handleMouseMove = (e) => {
-    const canvas = canvasRef.current;
-    const rect = canvas.getBoundingClientRect();
-    const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+    const mx = e.nativeEvent.offsetX;
+    const my = e.nativeEvent.offsetY;
     const idx = hitTest(mx, my);
     setHovered(idx);
 
@@ -161,7 +162,7 @@ export default function Treemap({ formatBytes }) {
         html: `<strong>${escapeHtml(r.name)}</strong><br/>${escapeHtml(r.path)}<br/>${formatBytes(r.size)} · ${kind}`,
       });
     } else {
-      setTooltip({ ...tooltip, visible: false });
+      setTooltip((t) => ({ ...t, visible: false }));
     }
   };
 
@@ -171,19 +172,40 @@ export default function Treemap({ formatBytes }) {
   };
 
   const handleClick = (e) => {
-    setCtxMenu({ ...ctxMenu, visible: false });
-    const canvas = canvasRef.current;
-    const rect = canvas.getBoundingClientRect();
-    const idx = hitTest(e.clientX - rect.left, e.clientY - rect.top);
+    // Clicking should do nothing
+    e.preventDefault();
+  };
+
+  const handleDoubleClick = (e) => {
+    e.preventDefault();
+    setCtxMenu((c) => ({ ...c, visible: false }));
+    const mx = e.nativeEvent.offsetX;
+    const my = e.nativeEvent.offsetY;
+    const idx = hitTest(mx, my);
     if (idx == null) return;
     const r = rects[idx];
-    setBreadcrumb(`${r.path} — ${formatBytes(r.size)}`);
-    setCtxMenu({ visible: true, x: e.clientX, y: e.clientY, rect: r });
+    
+    // Focus the directory. If it's a file, focus its parent folder.
+    let target = r.path;
+    if (!r.is_dir) {
+      const lastSlash = Math.max(r.path.lastIndexOf('\\'), r.path.lastIndexOf('/'));
+      if (lastSlash > 0) target = r.path.substring(0, lastSlash);
+    }
+    
+    // Trigger generation for this path
+    handleGenerate(target);
   };
 
   const handleContextMenu = (e) => {
     e.preventDefault();
-    handleClick(e);
+    setCtxMenu((c) => ({ ...c, visible: false }));
+    const mx = e.nativeEvent.offsetX;
+    const my = e.nativeEvent.offsetY;
+    const idx = hitTest(mx, my);
+    if (idx == null) return;
+    const r = rects[idx];
+    setBreadcrumb(`${r.path} — ${formatBytes(r.size)}`);
+    setCtxMenu({ visible: true, x: e.clientX, y: e.clientY, rect: r });
   };
 
   // ── Context menu actions ────────────────────────────────────────
@@ -213,22 +235,33 @@ export default function Treemap({ formatBytes }) {
   }, []);
 
   // ── Generate ────────────────────────────────────────────────────
-  const handleGenerate = async () => {
+  const handleGenerate = async (targetPath) => {
+    // If event listener triggers this (targetPath is Event), or no arg, use current focus
+    let p = focusedPath;
+    if (targetPath === null || typeof targetPath === "string") {
+      p = targetPath;
+    }
     setGenerating(true);
     setBreadcrumb("");
     try {
       const data = await invoke("get_unified_treemap", {
         maxRects: maxRects,
         depthLimit: depthLimit ? parseInt(depthLimit) : null,
+        rootPath: p || null,
       });
       setRects(data);
       setHovered(null);
+      setFocusedPath(p || null);
       const fc = data.filter(r => !r.is_dir).length;
       const dc = data.filter(r => r.is_dir).length;
       setStatus(`${data.length} blocks (${dc} dirs, ${fc} files)`);
-      setBreadcrumb("Click any block to open its location");
+      setBreadcrumb(p ? `Focused: ${p}` : "Right click any block to show options");
     } catch (err) {
       console.error("[WinDirScope] treemap error:", err);
+      if (p) {
+        setFocusedPath(null); // Clear invalid focus
+        setBreadcrumb(`Failed to focus ${p} (refreshing...)`);
+      }
     } finally {
       setGenerating(false);
     }
@@ -262,11 +295,21 @@ export default function Treemap({ formatBytes }) {
           />
           <button
             className="treemap-generate-btn"
-            onClick={handleGenerate}
+            onClick={() => handleGenerate(focusedPath)}
             disabled={generating}
           >
             {generating ? "Generating…" : "Generate"}
           </button>
+          {focusedPath && (
+            <button
+              className="treemap-generate-btn"
+              onClick={() => handleGenerate(null)}
+              disabled={generating}
+              style={{ background: "var(--surface1)", color: "var(--text)" }}
+            >
+              Reset Focus
+            </button>
+          )}
         </div>
 
         {status && <div className="tm-status">{status}</div>}
@@ -277,6 +320,7 @@ export default function Treemap({ formatBytes }) {
             onMouseMove={handleMouseMove}
             onMouseLeave={handleMouseLeave}
             onClick={handleClick}
+            onDoubleClick={handleDoubleClick}
             onContextMenu={handleContextMenu}
           />
         </div>
@@ -284,23 +328,25 @@ export default function Treemap({ formatBytes }) {
         {breadcrumb && <div className="tm-breadcrumb">{breadcrumb}</div>}
       </div>
 
-      {/* Tooltip */}
-      {tooltip.visible && (
+      {/* Tooltip via Portal */}
+      {tooltip.visible && createPortal(
         <div
           className="tm-tooltip"
           style={{ left: tooltip.x, top: tooltip.y }}
           dangerouslySetInnerHTML={{ __html: tooltip.html }}
-        />
+        />,
+        document.body
       )}
 
-      {/* Context Menu */}
-      {ctxMenu.visible && (
+      {/* Context Menu via Portal */}
+      {ctxMenu.visible && createPortal(
         <div className="ctx-menu" style={{ left: ctxMenu.x, top: ctxMenu.y }}>
           <div className="ctx-item" onClick={handleCtxOpen}>
             {ctxMenu.rect?.is_dir ? "Open folder" : "Open file location"}
           </div>
           <div className="ctx-item" onClick={handleCtxCopy}>Copy path</div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
