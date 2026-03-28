@@ -1,0 +1,46 @@
+{
+  "build": {
+    "beforeDevCommand": "",
+    "beforeBuildCommand": "",
+    "devPath": "../src",
+    "distDir": "../src",
+    "withGlobalTauri": true
+  },
+  "package": {
+    "productName": "WinDirScope",
+    "version": "0.1.0"
+  },
+  "tauri": {
+    "allowlist": {
+      "all": false,
+      "dialog": {
+        "open": true,
+        "confirm": true,
+        "message": true
+      },
+      "shell": {
+        "open": true
+      }
+    },
+    "bundle": {
+      "active": true,
+      "identifier": "com.windirscope.app",
+      "icon": []
+    },
+    "security": {
+      "csp": null
+    },
+    "windows": [
+      {
+        "title": "WinDirScope",
+        "width": 900,
+        "height": 700,
+        "resizable": true,
+        "fullscreen": false
+      }
+    ]
+  }
+}
+
+
+

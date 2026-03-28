@@ -1,0 +1,8 @@
+[workspace]
+members = [
+    "windirscope-core",
+    "windirscope-scanner",
+    "windirscope-cli",
+    "windirscope-app/src-tauri",
+]
+resolver = "2"

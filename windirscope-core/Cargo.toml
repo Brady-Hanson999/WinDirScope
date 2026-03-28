@@ -1,0 +1,7 @@
+[package]
+name = "windirscope-core"
+version = "0.1.0"
+edition = "2021"
+description = "Core types, config, events, and result tree for WinDirScope"
+
+[dependencies]

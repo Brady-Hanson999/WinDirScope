@@ -1,0 +1,12 @@
+[package]
+name = "windirscope-scanner"
+version = "0.1.0"
+edition = "2021"
+description = "Directory scanner engine for WinDirScope"
+
+[dependencies]
+windirscope-core = { path = "../windirscope-core" }
+crossbeam-channel = "0.5"
+
+[dev-dependencies]
+tempfile = "3"
