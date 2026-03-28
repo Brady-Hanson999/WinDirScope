@@ -1,0 +1,19 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Tauri: dev",
+      "type": "shell",
+      "command": "npx",
+      "args": ["@tauri-apps/cli", "dev"],
+      "options": {
+        "cwd": "${workspaceFolder}/windirscope-app/src-tauri"
+      },
+      "problemMatcher": [],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      }
+    }
+  ]
+}

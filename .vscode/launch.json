@@ -1,0 +1,14 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Tauri Dev",
+      "type": "pwa-node",
+      "request": "launch",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["@tauri-apps/cli", "dev"],
+      "cwd": "${workspaceFolder}/windirscope-app/src-tauri",
+      "console": "integratedTerminal"
+    }
+  ]
+}
