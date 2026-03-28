@@ -175,12 +175,17 @@ export default function App() {
 
   const handleOpenResults = useCallback(() => {
     try {
-      new WebviewWindow("results-window", {
+      const w = new WebviewWindow("results-window", {
         url: "/results.html",
         title: "WinDirScope — Results",
         width: 1100,
         height: 750,
         resizable: true,
+        visible: false, // Start hidden to prevent white flash
+      });
+      // Show once the webview is created and painted
+      w.once('tauri://created', () => {
+        setTimeout(() => w.show(), 120); // tiny delay lets React + CSS hydrate
       });
     } catch (e) {
       console.error("[WinDirScope] Failed to open results window:", e);

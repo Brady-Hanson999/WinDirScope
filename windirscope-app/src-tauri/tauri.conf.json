@@ -22,7 +22,8 @@
         "open": true
       },
       "window": {
-        "create": true
+        "create": true,
+        "show": true
       }
     },
     "bundle": {
@@ -39,7 +40,8 @@
         "width": 960,
         "height": 720,
         "resizable": true,
-        "fullscreen": false
+        "fullscreen": false,
+        "visible": false
       }
     ]
   }
