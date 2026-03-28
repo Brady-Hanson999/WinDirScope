@@ -1,15 +1,10 @@
 import "./App.css";
+import ForceGraphView from "./components/ForceGraphView";
 
 export default function ResultsWindow() {
   return (
-    <div className="results-window">
-      <div className="results-window-inner">
-        <h1>WinDirScope</h1>
-        <p>Results viewer — coming soon</p>
-        <p style={{ marginTop: 12, fontSize: "0.75rem", color: "var(--surface2)" }}>
-          Interactive treemap &amp; file explorer will appear here
-        </p>
-      </div>
+    <div className="results-window" style={{ width: '100vw', height: '100vh', overflow: 'hidden', margin: 0, padding: 0, position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}>
+      <ForceGraphView />
     </div>
   );
 }

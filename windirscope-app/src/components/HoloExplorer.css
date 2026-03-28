@@ -1,0 +1,167 @@
+/* HoloExplorer.css */
+
+.holo-back-btn {
+  background: rgba(30, 30, 46, 0.5);
+  border: 1px solid rgba(137, 180, 250, 0.3);
+  color: var(--sky);
+  border-radius: 4px;
+  padding: 3px 8px;
+  font-size: 0.70rem;
+  font-family: var(--font-mono);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.holo-back-btn:hover {
+  background: rgba(137, 180, 250, 0.2);
+  color: var(--text);
+}
+
+/* Container Overlay */
+.holo-explorer-overlay {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 340px;
+  height: 100vh;
+  padding: 80px 20px 20px;
+  pointer-events: none; /* Let events pass through to 3D graph */
+  z-index: 20;
+  animation: slideFadeIn 800ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.holo-explorer-overlay > * {
+  pointer-events: auto; /* Catch events on the actual panel */
+}
+
+/* Panel */
+.holo-explorer-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  border-radius: var(--radius-lg);
+  background: rgba(30, 30, 46, 0.4);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(137, 180, 250, 0.15);
+  box-shadow: 0 10px 40px rgba(17, 17, 27, 0.7), inset 0 0 10px rgba(137, 180, 250, 0.05);
+  overflow: hidden;
+}
+
+.holo-explorer-header {
+  padding: 16px;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--teal);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  border-bottom: 1px solid rgba(137, 180, 250, 0.1);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+}
+
+.holo-explorer-count {
+  font-size: 0.7rem;
+  color: var(--subtext0);
+}
+
+/* The scrollable tree */
+.holo-explorer-tree {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 12px 0 12px 12px;
+}
+
+/* Scrollbar customization for the tree */
+.holo-explorer-tree::-webkit-scrollbar {
+  width: 4px;
+}
+.holo-explorer-tree::-webkit-scrollbar-thumb {
+  background: rgba(137, 180, 250, 0.3);
+  border-radius: 4px;
+}
+
+/* Nodes */
+.holo-node-container {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+/* The vertical wireframe connector line */
+.holo-node-children {
+  position: relative;
+  margin-left: 10px;
+  padding-left: 10px;
+  border-left: 1px solid rgba(137, 180, 250, 0.15); 
+}
+
+/* Subtle horizontal connector dash */
+.holo-node-children::before {
+  content: '';
+  position: absolute;
+  top: 14px;
+  left: 0;
+  width: 10px;
+  height: 1px;
+  background: rgba(137, 180, 250, 0.15);
+}
+
+.holo-node-row {
+  display: flex;
+  align-items: center;
+  padding: 6px 10px;
+  margin: 2px 12px 2px 0;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 150ms ease;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--text);
+  background: transparent;
+  position: relative;
+}
+
+.holo-node-row:hover,
+.holo-node-row.is-selected {
+  background: rgba(137, 180, 250, 0.12);
+  box-shadow: inset 0 0 8px rgba(137, 180, 250, 0.2);
+  transform: translateX(4px);
+  color: var(--sky);
+}
+
+/* Icons */
+.holo-node-icon {
+  margin-right: 8px;
+  font-size: 0.9rem;
+  filter: grayscale(0.2);
+  opacity: 0.9;
+}
+
+.holo-node-name {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-right: 12px;
+}
+
+.holo-node-size {
+  font-size: 0.65rem;
+  color: var(--overlay0);
+  white-space: nowrap;
+}
+
+.holo-node-row:hover .holo-node-size {
+  color: var(--teal);
+}
+
+/* Entrance Animation */
+@keyframes slideFadeIn {
+  0% { opacity: 0; transform: translateX(50px); }
+  100% { opacity: 1; transform: translateX(0); }
+}
