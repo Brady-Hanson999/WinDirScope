@@ -1,0 +1,13 @@
+# Build artifacts
+/target/
+
+# Node
+node_modules/
+package-lock.json
+
+# IDE
+.vscode/
+
+# Temp/build logs
+build_output.txt
+*.log

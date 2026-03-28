@@ -1,0 +1,13 @@
+[package]
+name = "windirscope-cli"
+version = "0.1.0"
+edition = "2021"
+description = "CLI binary for WinDirScope disk usage analyzer"
+
+[[bin]]
+name = "windirscope"
+path = "src/main.rs"
+
+[dependencies]
+windirscope-core = { path = "../windirscope-core" }
+windirscope-scanner = { path = "../windirscope-scanner" }
