@@ -4,6 +4,7 @@
 )]
 
 mod treemap;
+mod graph;
 
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -335,6 +336,44 @@ fn get_unified_treemap(
     }
 }
 
+// ── Graph command ───────────────────────────────────────────────────
+
+#[tauri::command]
+fn get_graph_data(
+    max_nodes: u32,
+    depth_limit: Option<u32>,
+    root_path: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<graph::ForceGraphPayload, String> {
+    let guard = state.last_tree.lock().unwrap();
+    match guard.as_ref() {
+        Some(tree) => {
+            let mut start_node = 0;
+            if let Some(ref p) = root_path {
+                let mut found = false;
+                for i in 0..tree.nodes.len() {
+                    if tree.nodes[i].kind == windirscope_core::NodeKind::Directory 
+                       && tree.full_path(i).display().to_string() == *p {
+                        start_node = i;
+                        found = true;
+                        break;
+                    }
+                }
+                if !found {
+                    return Err(format!("Could not find directory {} in tree", p));
+                }
+            }
+            Ok(graph::build_force_graph(
+                tree,
+                start_node,
+                max_nodes.max(1) as usize,
+                depth_limit,
+            ))
+        }
+        None => Err("No scan result available. Run a scan first.".into()),
+    }
+}
+
 // ── Explorer integration ────────────────────────────────────────────
 
 #[tauri::command]
@@ -541,6 +580,7 @@ fn main() {
             start_scan,
             cancel_scan,
             get_unified_treemap,
+            get_graph_data,
             show_in_explorer,
             list_drives,
             get_root_children,
