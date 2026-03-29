@@ -393,6 +393,348 @@ fn show_in_explorer(path: String) -> Result<(), String> {
     Ok(())
 }
 
+// ── Safe file deletion ──────────────────────────────────────────────
+
+/// Check whether a path is safe to delete.
+/// Returns Ok(()) if safe, Err(reason) if blocked.
+fn check_path_safety(path_str: &str) -> Result<(), String> {
+    let path = std::path::Path::new(path_str);
+
+    // ── Layer 1: Must exist ─────────────────────────────────────
+    if !path.exists() {
+        return Err(format!("Path does not exist: {}", path_str));
+    }
+
+    // Canonicalize for reliable comparison
+    let canonical = path.canonicalize()
+        .map_err(|e| format!("Cannot resolve path: {}", e))?;
+    let canon_str = canonical.to_string_lossy().to_string();
+    // Strip UNC prefix (\\?\) that canonicalize adds on Windows
+    let clean = if canon_str.starts_with("\\\\?\\") {
+        &canon_str[4..]
+    } else {
+        &canon_str
+    };
+    let lower = clean.to_lowercase().replace('/', "\\");
+
+    // ── Layer 2: Drive root protection ──────────────────────────
+    // Block "C:\", "D:\", etc.
+    if lower.len() <= 3
+        && lower.as_bytes().first().map_or(false, |b| b.is_ascii_alphabetic())
+        && lower.ends_with(":\\")
+    {
+        return Err("Cannot delete a drive root.".into());
+    }
+    // Also block bare "C:" (2 chars)
+    if lower.len() == 2
+        && lower.as_bytes()[0].is_ascii_alphabetic()
+        && lower.as_bytes()[1] == b':'
+    {
+        return Err("Cannot delete a drive root.".into());
+    }
+
+    // ── Layer 3: Top-level directory guard ───────────────────────
+    // Anything that is a direct child of a drive root is blocked.
+    // e.g. C:\Users, C:\Windows, C:\anything
+    {
+        let components: Vec<_> = std::path::Path::new(&lower).components().collect();
+        // components[0] = Prefix (C:), components[1] = RootDir (\), components[2] = first dir
+        if components.len() <= 3 && canonical.is_dir() {
+            return Err(format!(
+                "Cannot delete top-level directory '{}'. This could be a critical system folder.",
+                clean
+            ));
+        }
+    }
+
+    // ── Layer 4: Blocked path prefixes ──────────────────────────
+    let blocked_prefixes: Vec<&str> = vec![
+        "c:\\windows",
+        "c:\\program files",
+        "c:\\program files (x86)",
+        "c:\\programdata",
+        "c:\\$recycle.bin",
+        "c:\\system volume information",
+        "c:\\recovery",
+        "c:\\$sysreset",
+        "c:\\config.msi",
+        "c:\\boot",
+        "c:\\efi",
+        "c:\\$windows.~bt",
+        "c:\\$windows.~ws",
+        "c:\\inetpub",
+        "c:\\perflogs",
+        "c:\\proclogs",
+        "c:\\msocache",
+        "c:\\documents and settings",
+    ];
+
+    for prefix in &blocked_prefixes {
+        if lower.starts_with(prefix) {
+            return Err(format!(
+                "Cannot delete '{}' — this is a protected system path.",
+                clean
+            ));
+        }
+    }
+
+    // Block AppData core directories (allow subfolders deeper inside)
+    // e.g. block C:\Users\X\AppData itself, C:\Users\X\AppData\Local itself
+    // but allow C:\Users\X\AppData\Local\Temp\somefile.txt
+    let appdata_roots: Vec<&str> = vec![
+        "\\appdata\\local\\microsoft",
+        "\\appdata\\local\\packages",
+        "\\appdata\\roaming\\microsoft",
+    ];
+    for adr in &appdata_roots {
+        if lower.contains(adr) {
+            return Err(format!(
+                "Cannot delete '{}' — this is inside a protected AppData directory.",
+                clean
+            ));
+        }
+    }
+
+    // Block the AppData folder itself and its immediate children
+    if lower.contains("\\appdata") {
+        // Count segments after "appdata"
+        if let Some(pos) = lower.find("\\appdata") {
+            let after = &lower[pos + 8..]; // after "\appdata"
+            let depth_after: usize = after.matches('\\').count();
+            // "\appdata" alone, or "\appdata\local", "\appdata\roaming", "\appdata\locallow"
+            if depth_after <= 1 {
+                return Err(format!(
+                    "Cannot delete '{}' — AppData directories are protected.",
+                    clean
+                ));
+            }
+        }
+    }
+
+    // ── Layer 5: System file name patterns ──────────────────────
+    let filename = canonical
+        .file_name()
+        .map(|f| f.to_string_lossy().to_lowercase())
+        .unwrap_or_default();
+
+    let blocked_filenames: Vec<&str> = vec![
+        "pagefile.sys",
+        "hiberfil.sys",
+        "swapfile.sys",
+        "bootmgr",
+        "bootnxt",
+        "ntldr",
+        "ntdetect.com",
+        "io.sys",
+        "msdos.sys",
+        "ntuser.dat",
+        "ntuser.dat.log",
+        "ntuser.dat.log1",
+        "ntuser.dat.log2",
+        "ntuser.ini",
+        "usrclass.dat",
+        "usrclass.dat.log",
+        "usrclass.dat.log1",
+        "usrclass.dat.log2",
+        "desktop.ini",
+    ];
+
+    if blocked_filenames.contains(&filename.as_str()) {
+        return Err(format!(
+            "Cannot delete '{}' — this is a protected system file.",
+            filename
+        ));
+    }
+
+    // Also block ntuser.* pattern
+    if filename.starts_with("ntuser.") {
+        return Err(format!(
+            "Cannot delete '{}' — NTUSER files are protected.",
+            filename
+        ));
+    }
+
+    // ── Layer 6: Windows SYSTEM file attribute ──────────────────
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        if let Ok(meta) = canonical.metadata() {
+            const FILE_ATTRIBUTE_SYSTEM: u32 = 0x00000004;
+            if meta.file_attributes() & FILE_ATTRIBUTE_SYSTEM != 0 {
+                return Err(format!(
+                    "Cannot delete '{}' — Windows marks this as a SYSTEM file.",
+                    clean
+                ));
+            }
+        }
+    }
+
+    // ── Layer 7: Don't delete our own app ───────────────────────
+    if let Ok(exe) = std::env::current_exe() {
+        if let Ok(exe_canon) = exe.canonicalize() {
+            let exe_lower = exe_canon.to_string_lossy().to_lowercase();
+            if exe_lower.starts_with(&lower) || lower.starts_with(&exe_lower.replace('/', "\\")) {
+                return Err("Cannot delete WinDirScope's own files.".into());
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn prune_tree_path(tree: &mut windirscope_core::DirTree, removed_path: &str) {
+    let p = std::path::Path::new(removed_path);
+    let parent_path = p.parent();
+    let file_name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
+
+    let mut removed_size = 0;
+    let mut bubble_up_from = None;
+
+    // Attempt 1: The deleted path is a directory (has a matching TreeNode)
+    for i in 0..tree.nodes.len() {
+        if tree.nodes[i].name == file_name && tree.full_path(i).display().to_string() == removed_path {
+            removed_size = tree.nodes[i].cumulative_size;
+            tree.nodes[i].size = 0;
+            tree.nodes[i].cumulative_size = 0;
+            tree.nodes[i].children.clear();
+            tree.nodes[i].top_files.clear();
+            bubble_up_from = tree.nodes[i].parent;
+            break;
+        }
+    }
+
+    // Attempt 2: The deleted path is a file (exists in parent's top_files)
+    if removed_size == 0 {
+        if let Some(parent) = parent_path {
+            let parent_str = parent.display().to_string();
+            for i in 0..tree.nodes.len() {
+                if tree.full_path(i).display().to_string() == parent_str {
+                    if let Some(idx) = tree.nodes[i].top_files.iter().position(|f| f.name == file_name) {
+                        removed_size = tree.nodes[i].top_files[idx].bytes;
+                        tree.nodes[i].top_files.remove(idx);
+                        tree.nodes[i].size = tree.nodes[i].size.saturating_sub(removed_size);
+                        tree.nodes[i].cumulative_size = tree.nodes[i].cumulative_size.saturating_sub(removed_size);
+                        bubble_up_from = tree.nodes[i].parent;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    // Bubble up the size reduction to ancestors
+    if removed_size > 0 {
+        let mut cur = bubble_up_from;
+        while let Some(pid) = cur {
+            tree.nodes[pid].cumulative_size = tree.nodes[pid].cumulative_size.saturating_sub(removed_size);
+            cur = tree.nodes[pid].parent;
+        }
+    }
+}
+
+/// Delete a file or folder by moving it to the Recycle Bin.
+#[tauri::command]
+fn delete_path(path: String, state: tauri::State<'_, AppState>) -> Result<String, String> {
+    // First, run all safety checks
+    check_path_safety(&path)?;
+
+    #[cfg(windows)]
+    {
+        use std::os::windows::ffi::OsStrExt;
+
+        // SHFILEOPSTRUCTW for SHFileOperationW
+        #[repr(C)]
+        #[allow(non_snake_case, non_camel_case_types)]
+        struct SHFILEOPSTRUCTW {
+            hwnd: *mut std::ffi::c_void,
+            wFunc: u32,
+            pFrom: *const u16,
+            pTo: *const u16,
+            fFlags: u16,
+            fAnyOperationsAborted: i32,
+            hNameMappings: *mut std::ffi::c_void,
+            lpszProgressTitle: *const u16,
+        }
+
+        #[link(name = "shell32")]
+        extern "system" {
+            fn SHFileOperationW(lpFileOp: *mut SHFILEOPSTRUCTW) -> i32;
+        }
+
+        const FO_DELETE: u32 = 0x0003;
+        const FOF_ALLOWUNDO: u16 = 0x0040;       // Send to Recycle Bin
+        const FOF_NOCONFIRMATION: u16 = 0x0010;   // Don't show OS confirmation (we have our own)
+        const FOF_SILENT: u16 = 0x0004;           // No progress dialog
+        const FOF_NOERRORUI: u16 = 0x0400;        // No error UI
+
+        // SHFileOperation requires double-null-terminated string
+        let wide: Vec<u16> = std::ffi::OsStr::new(&path)
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .chain(std::iter::once(0))
+            .collect();
+
+        let mut op = SHFILEOPSTRUCTW {
+            hwnd: std::ptr::null_mut(),
+            wFunc: FO_DELETE,
+            pFrom: wide.as_ptr(),
+            pTo: std::ptr::null(),
+            fFlags: FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_SILENT | FOF_NOERRORUI,
+            fAnyOperationsAborted: 0,
+            hNameMappings: std::ptr::null_mut(),
+            lpszProgressTitle: std::ptr::null(),
+        };
+
+        let result = unsafe { SHFileOperationW(&mut op) };
+
+        if result != 0 {
+            return Err(format!(
+                "Failed to move to Recycle Bin (error code: 0x{:X}). The file may be in use or protected.",
+                result
+            ));
+        }
+
+        if op.fAnyOperationsAborted != 0 {
+            return Err("Operation was cancelled.".into());
+        }
+
+        if let Ok(mut guard) = state.last_tree.lock() {
+            if let Some(ref mut tree) = *guard {
+                prune_tree_path(tree, &path);
+            }
+        }
+
+        Ok(format!("Moved to Recycle Bin: {}", path))
+    }
+
+    #[cfg(not(windows))]
+    {
+        // Fallback for non-Windows: actual delete
+        let p = std::path::Path::new(&path);
+        if p.is_dir() {
+            std::fs::remove_dir_all(p)
+                .map_err(|e| format!("Failed to delete directory: {}", e))?;
+        } else {
+            std::fs::remove_file(p)
+                .map_err(|e| format!("Failed to delete file: {}", e))?;
+        }
+        
+        if let Ok(mut guard) = state.last_tree.lock() {
+            if let Some(ref mut tree) = *guard {
+                prune_tree_path(tree, &path);
+            }
+        }
+
+        Ok(format!("Deleted: {}", path))
+    }
+}
+
+/// Check if a path is safe to delete (frontend can call this to show/hide the delete option).
+#[tauri::command]
+fn check_delete_safety(path: String) -> Result<(), String> {
+    check_path_safety(&path)
+}
+
 /// List available drive letters (Windows only, instant via WinAPI).
 #[tauri::command]
 fn list_drives() -> Vec<String> {
@@ -582,6 +924,8 @@ fn main() {
             get_unified_treemap,
             get_graph_data,
             show_in_explorer,
+            delete_path,
+            check_delete_safety,
             list_drives,
             get_root_children,
             is_elevated,

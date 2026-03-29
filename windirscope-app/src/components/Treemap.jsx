@@ -50,7 +50,13 @@ export default function Treemap({ formatBytes }) {
   const [focusedPath, setFocusedPath] = useState(null);
 
   // Context menu state
-  const [ctxMenu, setCtxMenu] = useState({ visible: false, x: 0, y: 0, rect: null });
+  const [ctxMenu, setCtxMenu] = useState({ visible: false, x: 0, y: 0, rect: null, canDelete: false });
+
+  // Delete confirmation dialog
+  const [deleteConfirm, setDeleteConfirm] = useState({ visible: false, rect: null, deleting: false, error: null });
+  
+  // Toast notification
+  const [toast, setToast] = useState({ visible: false, message: "", isError: false });
 
   // Tooltip state
   const [tooltip, setTooltip] = useState({ visible: false, x: 0, y: 0, html: "" });
@@ -196,7 +202,7 @@ export default function Treemap({ formatBytes }) {
     handleGenerate(target);
   };
 
-  const handleContextMenu = (e) => {
+  const handleContextMenu = async (e) => {
     e.preventDefault();
     setCtxMenu((c) => ({ ...c, visible: false }));
     const mx = e.nativeEvent.offsetX;
@@ -205,7 +211,17 @@ export default function Treemap({ formatBytes }) {
     if (idx == null) return;
     const r = rects[idx];
     setBreadcrumb(`${r.path} — ${formatBytes(r.size)}`);
-    setCtxMenu({ visible: true, x: e.clientX, y: e.clientY, rect: r });
+    
+    // Check if this path is safe to delete
+    let canDelete = false;
+    try {
+      await invoke("check_delete_safety", { path: r.path });
+      canDelete = true;
+    } catch (_) {
+      canDelete = false;
+    }
+    
+    setCtxMenu({ visible: true, x: e.clientX, y: e.clientY, rect: r, canDelete });
   };
 
   // ── Context menu actions ────────────────────────────────────────
@@ -219,6 +235,31 @@ export default function Treemap({ formatBytes }) {
     setCtxMenu({ ...ctxMenu, visible: false });
     if (!ctxMenu.rect) return;
     navigator.clipboard?.writeText(ctxMenu.rect.path).catch(() => {});
+  };
+
+  const handleCtxDelete = () => {
+    setCtxMenu({ ...ctxMenu, visible: false });
+    if (!ctxMenu.rect) return;
+    setDeleteConfirm({ visible: true, rect: ctxMenu.rect, deleting: false, error: null });
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deleteConfirm.rect) return;
+    setDeleteConfirm(d => ({ ...d, deleting: true, error: null }));
+    try {
+      const msg = await invoke("delete_path", { path: deleteConfirm.rect.path });
+      setDeleteConfirm({ visible: false, rect: null, deleting: false, error: null });
+      showToast(msg, false);
+      // Refresh treemap
+      handleGenerate(focusedPath);
+    } catch (err) {
+      setDeleteConfirm(d => ({ ...d, deleting: false, error: typeof err === 'string' ? err : err.message || 'Deletion failed' }));
+    }
+  };
+
+  const showToast = (message, isError) => {
+    setToast({ visible: true, message, isError });
+    setTimeout(() => setToast({ visible: false, message: "", isError: false }), 4000);
   };
 
   // Dismiss ctx menu on outside click
@@ -342,9 +383,66 @@ export default function Treemap({ formatBytes }) {
       {ctxMenu.visible && createPortal(
         <div className="ctx-menu" style={{ left: ctxMenu.x, top: ctxMenu.y }}>
           <div className="ctx-item" onClick={handleCtxOpen}>
-            {ctxMenu.rect?.is_dir ? "Open folder" : "Open file location"}
+            {ctxMenu.rect?.is_dir ? "📂 Open folder" : "📂 Open file location"}
           </div>
-          <div className="ctx-item" onClick={handleCtxCopy}>Copy path</div>
+          <div className="ctx-item" onClick={handleCtxCopy}>📋 Copy path</div>
+          <div className="ctx-divider" />
+          {ctxMenu.canDelete ? (
+            <div className="ctx-item ctx-item-danger" onClick={handleCtxDelete}>
+              🗑️ Delete
+            </div>
+          ) : (
+            <div className="ctx-item ctx-item-disabled" title="This file/folder is protected and cannot be deleted">
+              🔒 Protected
+            </div>
+          )}
+        </div>,
+        document.body
+      )}
+
+      {/* Delete Confirmation Dialog via Portal */}
+      {deleteConfirm.visible && createPortal(
+        <div className="delete-overlay" onClick={() => !deleteConfirm.deleting && setDeleteConfirm({ visible: false, rect: null, deleting: false, error: null })}>
+          <div className="delete-dialog" onClick={e => e.stopPropagation()}>
+            <div className="delete-dialog-icon">🗑️</div>
+            <h3 className="delete-dialog-title">Move to Recycle Bin?</h3>
+            <p className="delete-dialog-path" title={deleteConfirm.rect?.path}>
+              {deleteConfirm.rect?.name}
+            </p>
+            <div className="delete-dialog-details">
+              <span>{deleteConfirm.rect?.is_dir ? '📁 Folder' : '📄 File'}</span>
+              <span>·</span>
+              <span>{formatBytes(deleteConfirm.rect?.size)}</span>
+            </div>
+            <p className="delete-dialog-fullpath">{deleteConfirm.rect?.path}</p>
+            {deleteConfirm.error && (
+              <div className="delete-dialog-error">{deleteConfirm.error}</div>
+            )}
+            <div className="delete-dialog-actions">
+              <button 
+                className="delete-dialog-cancel"
+                onClick={() => setDeleteConfirm({ visible: false, rect: null, deleting: false, error: null })}
+                disabled={deleteConfirm.deleting}
+              >
+                Cancel
+              </button>
+              <button 
+                className="delete-dialog-confirm"
+                onClick={handleConfirmDelete}
+                disabled={deleteConfirm.deleting}
+              >
+                {deleteConfirm.deleting ? 'Deleting…' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* Toast notification */}
+      {toast.visible && createPortal(
+        <div className={`delete-toast ${toast.isError ? 'delete-toast-error' : 'delete-toast-success'}`}>
+          {toast.isError ? '❌' : '✅'} {toast.message}
         </div>,
         document.body
       )}
