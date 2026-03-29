@@ -383,17 +383,17 @@ export default function Treemap({ formatBytes }) {
       {ctxMenu.visible && createPortal(
         <div className="ctx-menu" style={{ left: ctxMenu.x, top: ctxMenu.y }}>
           <div className="ctx-item" onClick={handleCtxOpen}>
-            {ctxMenu.rect?.is_dir ? "📂 Open folder" : "📂 Open file location"}
+            {ctxMenu.rect?.is_dir ? "Open folder" : "Open file location"}
           </div>
-          <div className="ctx-item" onClick={handleCtxCopy}>📋 Copy path</div>
+          <div className="ctx-item" onClick={handleCtxCopy}>Copy path</div>
           <div className="ctx-divider" />
           {ctxMenu.canDelete ? (
             <div className="ctx-item ctx-item-danger" onClick={handleCtxDelete}>
-              🗑️ Delete
+              Delete
             </div>
           ) : (
             <div className="ctx-item ctx-item-disabled" title="This file/folder is protected and cannot be deleted">
-              🔒 Protected
+              Protected
             </div>
           )}
         </div>,
@@ -404,13 +404,12 @@ export default function Treemap({ formatBytes }) {
       {deleteConfirm.visible && createPortal(
         <div className="delete-overlay" onClick={() => !deleteConfirm.deleting && setDeleteConfirm({ visible: false, rect: null, deleting: false, error: null })}>
           <div className="delete-dialog" onClick={e => e.stopPropagation()}>
-            <div className="delete-dialog-icon">🗑️</div>
             <h3 className="delete-dialog-title">Move to Recycle Bin?</h3>
             <p className="delete-dialog-path" title={deleteConfirm.rect?.path}>
               {deleteConfirm.rect?.name}
             </p>
             <div className="delete-dialog-details">
-              <span>{deleteConfirm.rect?.is_dir ? '📁 Folder' : '📄 File'}</span>
+              <span>{deleteConfirm.rect?.is_dir ? 'Folder' : 'File'}</span>
               <span>·</span>
               <span>{formatBytes(deleteConfirm.rect?.size)}</span>
             </div>
@@ -442,7 +441,7 @@ export default function Treemap({ formatBytes }) {
       {/* Toast notification */}
       {toast.visible && createPortal(
         <div className={`delete-toast ${toast.isError ? 'delete-toast-error' : 'delete-toast-success'}`}>
-          {toast.isError ? '❌' : '✅'} {toast.message}
+          {toast.message}
         </div>,
         document.body
       )}
