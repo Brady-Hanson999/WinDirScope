@@ -29,7 +29,9 @@
     "bundle": {
       "active": true,
       "identifier": "com.windirscope.app",
-      "icon": []
+      "icon": [
+        "icons/icon.ico"
+      ]
     },
     "security": {
       "csp": null
