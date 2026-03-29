@@ -42,6 +42,7 @@ export default function ForceGraphView() {
   const [generating, setGenerating] = useState(false);
   const [maxNodes, setMaxNodes] = useState(2000);
   const [focusedPath, setFocusedPath] = useState(null);
+  const [selectedNode, setSelectedNode] = useState(null);
   
   const [hoverNode, setHoverNode] = useState(null);
   const [highlightNodes, setHighlightNodes] = useState(new Set());
@@ -50,11 +51,21 @@ export default function ForceGraphView() {
   const [status, setStatus] = useState("");
   const [tooltip, setTooltip] = useState({ visible: false, x: 0, y: 0, html: "" });
 
+  const [cart, setCart] = useState([]);
+  const [toast, setToast] = useState({ visible: false, message: "", isError: false });
+  const [deletingCart, setDeletingCart] = useState(false);
+
+  const showToast = (message, isError = false) => {
+    setToast({ visible: true, message, isError });
+    setTimeout(() => setToast({ visible: false, message: "", isError: false }), 4000);
+  };
+
   const loadGraph = useCallback(async (targetPath = null) => {
     setGenerating(true);
     setStatus("Generating 3D Graph...");
     setHighlightNodes(new Set());
     setHighlightLinks(new Set());
+    setSelectedNode(null);
     try {
       const data = await invoke("get_graph_data", {
         maxNodes: 250,
@@ -175,6 +186,8 @@ export default function ForceGraphView() {
       return; 
     }
 
+    setSelectedNode(node);
+
     if (node.is_dir) {
       const { nodes, links } = getSubtree(node);
       setHighlightNodes(nodes);
@@ -184,6 +197,21 @@ export default function ForceGraphView() {
       setHighlightLinks(new Set());
     }
   }, [getSubtree, loadGraph]);
+
+  const handleNodeRightClick = async (node) => {
+    if (cart.find(n => n.path === node.path)) {
+      setCart(c => c.filter(n => n.path !== node.path));
+      showToast("Removed from deletion queue");
+      return;
+    }
+    try {
+      await invoke("check_delete_safety", { path: node.path });
+      setCart(c => [...c, node]);
+      showToast(`Added ${node.name} to deletion queue`);
+    } catch (err) {
+      showToast(typeof err === 'string' ? err : "This file is protected", true);
+    }
+  };
 
   return (
     <div className="graph-view-container" style={{ width: '100%', height: '100%', background: '#11111b', overflow: 'hidden', position: 'absolute', top: 0, left: 0 }}>
@@ -202,12 +230,27 @@ export default function ForceGraphView() {
         )}
 
         {highlightNodes.size > 0 && (
-          <button onClick={() => { setHighlightNodes(new Set()); setHighlightLinks(new Set()); }} className="treemap-generate-btn" style={{ background: 'var(--surface1)'}}>
+          <button onClick={() => { setHighlightNodes(new Set()); setHighlightLinks(new Set()); setSelectedNode(null); }} className="treemap-generate-btn" style={{ background: 'var(--surface1)'}}>
             Clear Highlight
           </button>
         )}
 
-        <span style={{ fontSize: '0.9rem', color: 'var(--subtext0)', alignSelf: 'center' }}>{status}</span>
+        {selectedNode && (
+          <button 
+            onClick={() => handleNodeRightClick(selectedNode)}
+            className="treemap-generate-btn" 
+            style={{ 
+              background: cart.find(n => n.path === selectedNode.path) ? 'var(--surface2)' : 'var(--red)', 
+              color: cart.find(n => n.path === selectedNode.path) ? 'var(--text)' : 'var(--crust)',
+              fontWeight: 'bold', border: 'none'
+            }}
+          >
+            {cart.find(n => n.path === selectedNode.path) ? `Remove from Queue` : `Queue for Deletion`}
+          </button>
+        )}
+
+        <span style={{ fontSize: '0.9rem', color: 'var(--subtext0)', alignSelf: 'center', marginLeft: '8px' }}>{status}</span>
+        <span style={{ fontSize: '0.8rem', color: 'var(--overlay0)', marginLeft: '8px', alignSelf: 'center', borderLeft: '1px solid var(--surface2)', paddingLeft: '12px' }}>Right-click or select nodes to queue for deletion</span>
       </div>
 
       <ForceGraph3D
@@ -216,6 +259,7 @@ export default function ForceGraphView() {
         numDimensions={2}
         nodeLabel={() => ''} // custom tooltip overlay
         nodeColor={node => {
+          if (cart.find(n => n.path === node.path)) return '#f38ba8'; // Highlight cart items in red
           if (highlightNodes.size > 0 && !highlightNodes.has(node.id)) {
             return `rgba(186, 194, 222, 0.05)`; // super dimmed
           }
@@ -247,6 +291,7 @@ export default function ForceGraphView() {
           }
         }}
         onNodeClick={handleNodeClick}
+        onNodeRightClick={handleNodeRightClick}
         d3Force={(d3, forceEngine) => {
           if (fgRef.current && forceEngine === "d3") {
             // Apply physics on map building
@@ -285,6 +330,71 @@ export default function ForceGraphView() {
           style={{ left: tooltip.x + 15, top: tooltip.y + 15 }}
           dangerouslySetInnerHTML={{ __html: tooltip.html }}
         />,
+        document.body
+      )}
+
+      {/* Deletion Queue Cart Overlay */}
+      {cart.length > 0 && (
+        <div style={{
+          position: 'absolute', right: '20px', bottom: '20px', width: '320px',
+          background: 'var(--surface0)', border: '1px solid var(--red)',
+          borderRadius: '12px', padding: '16px', zIndex: 50,
+          boxShadow: 'var(--shadow-xl)', display: 'flex', flexDirection: 'column', gap: '8px'
+        }}>
+          <h3 style={{ margin: 0, color: 'var(--red)', display: 'flex', justifyContent: 'space-between', fontSize: '1.1rem' }}>
+            Deletion Queue <span style={{ fontSize: '0.8rem', alignSelf: 'center', color: 'var(--text)' }}>{cart.length} item(s)</span>
+          </h3>
+          <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--subtext0)' }}>Right-click nodes to add or remove</p>
+          <div style={{ maxHeight: '200px', overflowY: 'auto', borderBottom: '1px solid var(--surface1)', paddingBottom: '8px', fontSize: '0.85rem' }}>
+            {cart.map(n => (
+              <div key={n.path} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                <span style={{ textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap', maxWidth: '200px' }} title={n.path}>{n.name}</span>
+                <span style={{ color: 'var(--subtext0)', paddingLeft: '8px' }}>{formatBytes(n.size)}</span>
+              </div>
+            ))}
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '4px', fontWeight: 'bold', color: 'var(--text)' }}>
+            <span>Total:</span>
+            <span>{formatBytes(cart.reduce((acc, n) => acc + (n.size || 0), 0))}</span>
+          </div>
+          <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+            <button 
+              onClick={() => setCart([])} 
+              disabled={deletingCart}
+              style={{ flex: 1, background: 'var(--surface1)', border: '1px solid var(--surface2)', padding: '8px', borderRadius: '8px', color: 'var(--text)', cursor: 'pointer', fontWeight: '600' }}
+            >
+              Clear
+            </button>
+            <button 
+              onClick={async () => {
+                setDeletingCart(true);
+                let count = 0;
+                for (const item of cart) {
+                  try {
+                    await invoke("delete_path", { path: item.path });
+                    count++;
+                  } catch (e) {
+                    console.error("Failed to delete", item.path, e);
+                  }
+                }
+                showToast(`Deleted ${count} items. Reloading...`, count < cart.length);
+                setCart(c => c.slice(count)); // only keep ones that failed
+                setDeletingCart(false);
+                loadGraph(focusedPath);
+              }}
+              disabled={deletingCart}
+              style={{ flex: 2, background: 'var(--red)', border: 'none', padding: '8px', borderRadius: '8px', color: 'var(--crust)', cursor: 'pointer', fontWeight: 'bold' }}
+            >
+              {deletingCart ? 'Emptying...' : 'Delete All'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {toast.visible && createPortal(
+        <div className={`delete-toast ${toast.isError ? 'delete-toast-error' : 'delete-toast-success'}`} style={{ zIndex: 100 }}>
+          {toast.message}
+        </div>,
         document.body
       )}
 
