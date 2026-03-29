@@ -36,6 +36,58 @@ function formatBytes(bytes) {
   return bytes + " B";
 }
 
+function DuplicatesModal({ onClose, rootPath, onAddToCart }) {
+  const [groups, setGroups] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    invoke("find_duplicates", { path: rootPath || "C:\\" })
+      .then(res => setGroups(res))
+      .catch(err => setError(String(err)))
+      .finally(() => setLoading(false));
+  }, [rootPath]);
+
+  return createPortal(
+    <div className="modal-overlay" onClick={onClose} style={{ zIndex: 600 }}>
+      <div className="modal" onClick={e => e.stopPropagation()} style={{ width: '700px', maxWidth: '95vw', background: 'var(--base)', border: '1px solid var(--surface2)' }}>
+        <div className="modal-header">
+          <h2>Duplicate Files {rootPath ? `in ${rootPath}` : 'in Root'}</h2>
+          <button className="modal-close-btn" onClick={onClose}>×</button>
+        </div>
+        <div className="modal-body" style={{ padding: '0', display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '60vh', overflowY: 'auto' }}>
+          {loading && <div style={{ padding: '24px', textAlign: 'center', color: 'var(--subtext0)' }}>Scanning for exact binary duplicates (this may take a minute)...</div>}
+          {error && <div style={{ padding: '24px', color: 'var(--red)' }}>{error}</div>}
+          {(!loading && !error && groups.length === 0) && (
+            <div style={{ padding: '24px', textAlign: 'center', color: 'var(--green)' }}>No duplicates found! Your files are squeaky clean.</div>
+          )}
+          {groups.map((g, i) => (
+            <div key={i} style={{ borderBottom: '1px solid var(--surface1)', padding: '12px 16px' }}>
+              <div style={{ fontWeight: 'bold', color: 'var(--yellow)', marginBottom: '8px' }}>
+                Group {i+1} — {formatBytes(g.size)} each
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                {g.files.map((f, j) => (
+                  <div key={j} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--surface0)', padding: '6px 10px', borderRadius: '6px' }}>
+                    <span style={{ fontSize: '0.8rem', color: 'var(--subtext0)', wordBreak: 'break-all', paddingRight: '12px' }}>{f.path}</span>
+                    <button 
+                      onClick={() => onAddToCart({ path: f.path, name: f.name, size: f.size, is_dir: false })}
+                      style={{ background: 'var(--surface1)', border: '1px solid var(--surface2)', color: 'var(--text)', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', fontSize: '0.75rem', whiteSpace: 'nowrap' }}
+                    >
+                      Queue
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+}
+
 export default function ForceGraphView() {
   const fgRef = useRef();
   const [graphData, setGraphData] = useState({ nodes: [], links: [] });
@@ -54,6 +106,8 @@ export default function ForceGraphView() {
   const [cart, setCart] = useState([]);
   const [toast, setToast] = useState({ visible: false, message: "", isError: false });
   const [deletingCart, setDeletingCart] = useState(false);
+  
+  const [showDuplicates, setShowDuplicates] = useState(false);
 
   const showToast = (message, isError = false) => {
     setToast({ visible: true, message, isError });
@@ -235,6 +289,10 @@ export default function ForceGraphView() {
           </button>
         )}
 
+        <button onClick={() => setShowDuplicates(true)} className="treemap-generate-btn" style={{ background: 'var(--surface1)'}}>
+          Find Duplicates
+        </button>
+
         {selectedNode && (
           <button 
             onClick={() => handleNodeRightClick(selectedNode)}
@@ -347,9 +405,19 @@ export default function ForceGraphView() {
           <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--subtext0)' }}>Right-click nodes to add or remove</p>
           <div style={{ maxHeight: '200px', overflowY: 'auto', borderBottom: '1px solid var(--surface1)', paddingBottom: '8px', fontSize: '0.85rem' }}>
             {cart.map(n => (
-              <div key={n.path} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                <span style={{ textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap', maxWidth: '200px' }} title={n.path}>{n.name}</span>
-                <span style={{ color: 'var(--subtext0)', paddingLeft: '8px' }}>{formatBytes(n.size)}</span>
+              <div 
+                key={n.path} 
+                onClick={() => setCart(c => c.filter(item => item.path !== n.path))}
+                title="Click to remove from queue"
+                style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 4px', borderBottom: '1px solid rgba(255,255,255,0.05)', cursor: 'pointer', borderRadius: '4px', transition: 'background 0.2s' }}
+                onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(243, 139, 168, 0.15)'}
+                onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span style={{ color: 'var(--red)', fontWeight: 'bold', fontSize: '1.1rem', lineHeight: 1 }}>×</span>
+                  <span style={{ textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap', maxWidth: '180px' }}>{n.name}</span>
+                </div>
+                <span style={{ color: 'var(--subtext0)', paddingLeft: '8px', alignSelf: 'center' }}>{formatBytes(n.size)}</span>
               </div>
             ))}
           </div>
@@ -396,6 +464,27 @@ export default function ForceGraphView() {
           {toast.message}
         </div>,
         document.body
+      )}
+
+      {/* Duplicates Modal Overlay */}
+      {showDuplicates && (
+        <DuplicatesModal 
+          rootPath={focusedPath} 
+          onClose={() => setShowDuplicates(false)} 
+          onAddToCart={async (node) => {
+            if (cart.find(n => n.path === node.path)) {
+              showToast("Already in deletion queue");
+              return;
+            }
+            try {
+              await invoke("check_delete_safety", { path: node.path });
+              setCart(c => [...c, node]);
+              showToast(`Added ${node.name} to deletion queue`);
+            } catch (err) {
+              showToast(typeof err === 'string' ? err : "This file is protected", true);
+            }
+          }}
+        />
       )}
 
     </div>

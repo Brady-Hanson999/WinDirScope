@@ -5,6 +5,7 @@
 
 mod treemap;
 mod graph;
+mod duplicates;
 
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -910,6 +911,16 @@ fn restart_elevated(app: AppHandle) -> Result<(), String> {
     }
 }
 
+#[tauri::command]
+async fn find_duplicates(path: String) -> Result<Vec<duplicates::DuplicateGroup>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let root = std::path::Path::new(&path);
+        duplicates::find_exact_duplicates(root)
+    })
+    .await
+    .map_err(|e| format!("Task panicked: {}", e))?
+}
+
 // ── main ────────────────────────────────────────────────────────────
 
 fn main() {
@@ -929,7 +940,7 @@ fn main() {
             list_drives,
             get_root_children,
             is_elevated,
-
+            find_duplicates,
             restart_elevated
         ])
         .run(tauri::generate_context!())
